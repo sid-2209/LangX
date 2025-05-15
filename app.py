@@ -74,20 +74,22 @@ def translate_text_endpoint():
     if not isinstance(text, str) or not text.strip():
         return make_response(jsonify({"error": "Invalid text input"}), 400)
     
-    translations = {}
+    target_lang = data.get("target_lang", "es")  # Default to Spanish if not specified
+    if target_lang not in MODEL_NAMES:
+        return make_response(jsonify({"error": f"Unsupported target language: {target_lang}"}), 400)
+    
     try:
-        for lang_code, model_name in MODEL_NAMES.items():
-            model, tokenizer = get_model_and_tokenizer(lang_code)
-            
-            # Tokenize and translate
-            inputs = tokenizer(text, return_tensors="pt", padding=True)
-            translated = model.generate(**inputs)
-            translated_text = tokenizer.batch_decode(translated, skip_special_tokens=True)[0]
-            
-            translations[lang_code] = translated_text
-            
+        model, tokenizer = get_model_and_tokenizer(target_lang)
+        
+        # Tokenize and translate
+        inputs = tokenizer(text, return_tensors="pt", padding=True)
+        translated = model.generate(**inputs)
+        translated_text = tokenizer.batch_decode(translated, skip_special_tokens=True)[0]
+        
         return make_response(jsonify({
-            "translations": translations,
+            "translations": {
+                target_lang: translated_text
+            },
             "original_text": text
         }), 200)
     except Exception as e:

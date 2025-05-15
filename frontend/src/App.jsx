@@ -24,12 +24,11 @@ import {
   Tooltip,
 } from '@mui/material';
 import { ContentCopy, Translate, Mic, Upload as UploadIcon, Delete as DeleteIcon } from '@mui/icons-material';
-import { ToastContainer, toast } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
 import axios from 'axios';
 import Recorder from './components/Recorder';
 import AudioPlayer from './components/AudioPlayer';
 import Loader from './components/Loader';
+import Toast, { notify } from './components/Toast';
 
 // Create a custom theme
 const theme = createTheme({
@@ -110,7 +109,7 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 // API endpoints configuration
 const API_ENDPOINTS = {
   TRANSCRIBE: '/transcribe',
-  TRANSLATE: '/translate',
+  TRANSLATE: '/translate_text',
   SYNTHESIZE: '/synthesize',
 };
 
@@ -159,46 +158,51 @@ const App = () => {
     if (error.response) {
       // Server responded with error
       const serverMessage = error.response.data?.error || customMessage;
-      toast.error(serverMessage, toastConfig);
+      notify.error(serverMessage || ERROR_MESSAGES.SERVER);
     } else if (error.request) {
       // Request made but no response
-      toast.error(ERROR_MESSAGES.NETWORK, toastConfig);
+      notify.error(ERROR_MESSAGES.NETWORK);
     } else {
       // Other errors
-      toast.error(customMessage || ERROR_MESSAGES.SERVER, toastConfig);
+      notify.error(customMessage || ERROR_MESSAGES.SERVER);
     }
   };
 
   const translateText = async (text) => {
     if (!text) {
-      toast.error(ERROR_MESSAGES.TRANSLATION.NO_TEXT, toastConfig);
+      notify.error(ERROR_MESSAGES.TRANSLATION.NO_TEXT);
       return;
     }
 
     if (!targetLang) {
-      toast.error(ERROR_MESSAGES.TRANSLATION.INVALID_LANG, toastConfig);
+      notify.error(ERROR_MESSAGES.TRANSLATION.INVALID_LANG);
       return;
     }
 
-    const toastId = showLoadingToast('Translating text...');
+    const toastId = notify.loading('Translating text...');
+
     try {
       setIsTranslating(true);
       const response = await axios.post(API_ENDPOINTS.TRANSLATE, {
-        text,
+        text: text,
         target_lang: targetLang
       }, {
-        timeout: 10000, // 10 second timeout
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        timeout: 30000,
       });
 
-      if (!response.data?.translation) {
+      if (!response.data?.translations?.[targetLang]) {
         throw new Error(ERROR_MESSAGES.TRANSLATION.FAILED);
       }
 
-      setTranslation(response.data.translation);
-      updateToast(toastId, 'Translation complete!');
+      setTranslation(response.data.translations[targetLang]);
+      notify.update(toastId, 'Translation completed!', 'success');
     } catch (error) {
+      console.error('Translation error:', error);
+      notify.update(toastId, error.message || ERROR_MESSAGES.TRANSLATION.FAILED, 'error');
       handleApiError(error, ERROR_MESSAGES.TRANSLATION.FAILED);
-      setTranslation('');
     } finally {
       setIsTranslating(false);
     }
@@ -206,11 +210,11 @@ const App = () => {
 
   const handleRecordingComplete = async (audioBlob) => {
     if (!audioBlob) {
-      toast.error(ERROR_MESSAGES.TRANSCRIPTION.NO_AUDIO, toastConfig);
+      notify.error(ERROR_MESSAGES.TRANSCRIPTION.NO_AUDIO);
       return;
     }
 
-    const toastId = showLoadingToast('Transcribing audio...');
+    const toastId = notify.loading('Transcribing audio...');
     try {
       setIsTranscribing(true);
       setTranslation('');
@@ -218,7 +222,7 @@ const App = () => {
       lastRecordingRef.current = audioBlob;
 
       const formData = new FormData();
-      formData.append('audio', audioBlob, 'recording.webm');
+      formData.append('file', audioBlob, 'recording.webm');
 
       const response = await axios.post(API_ENDPOINTS.TRANSCRIBE, formData, {
         headers: {
@@ -233,7 +237,7 @@ const App = () => {
 
       const transcribedText = response.data.transcription;
       setTranscription(transcribedText);
-      updateToast(toastId, 'Transcription complete!');
+      notify.update(toastId, 'Transcription complete!');
 
       // Automatically trigger translation if transcription is successful
       if (transcribedText !== 'No transcription available') {
@@ -247,24 +251,81 @@ const App = () => {
     }
   };
 
-  const handleFileUpload = (event) => {
+  const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
 
     // Validate file type
     if (!ALLOWED_AUDIO_TYPES.includes(file.type)) {
-      toast.error('Please upload a .wav or .mp3 file only.', toastConfig);
+      notify.error(ERROR_MESSAGES.TRANSCRIPTION.INVALID_FORMAT);
       return;
     }
 
     // Validate file size
     if (file.size > MAX_FILE_SIZE) {
-      toast.error('File size must be less than 10MB.', toastConfig);
+      notify.error('File size must be less than 10MB.');
       return;
     }
 
     setUploadedFile(file);
-    toast.success('Audio file uploaded successfully!', toastConfig);
+    notify.success('Audio file uploaded successfully!');
+
+    // Automatically trigger transcription
+    const toastId = notify.loading('Transcribing audio...');
+
+    try {
+      setIsTranscribing(true);
+      setTranslation('');
+      setClonedAudioUrl(null);
+
+      const formData = new FormData();
+      formData.append('file', file, file.name);
+
+      console.log('Uploading file:', {
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        lastModified: file.lastModified
+      });
+
+      const response = await axios.post(API_ENDPOINTS.TRANSCRIBE, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+        timeout: 30000,
+      });
+
+      console.log('Transcription response:', {
+        status: response.status,
+        statusText: response.statusText,
+        data: response.data
+      });
+
+      if (response.status === 200 && response.data?.text) {
+        const transcribedText = response.data.text;
+        setTranscription(transcribedText);
+        notify.update(toastId, 'Transcription complete!', 'success');
+
+        // Automatically trigger translation if transcription is successful
+        if (transcribedText !== 'No transcription available') {
+          await translateText(transcribedText);
+        }
+      } else {
+        throw new Error(response.data?.error || ERROR_MESSAGES.TRANSCRIPTION.FAILED);
+      }
+    } catch (error) {
+      console.error('Transcription error details:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        headers: error.response?.headers
+      });
+      
+      notify.update(toastId, error.message || ERROR_MESSAGES.TRANSCRIPTION.FAILED, 'error');
+      setTranscription('');
+    } finally {
+      setIsTranscribing(false);
+    }
   };
 
   const handleRemoveFile = () => {
@@ -277,16 +338,16 @@ const App = () => {
   const handleCloneVoice = async () => {
     // Validate prerequisites
     if (!translation) {
-      toast.error(ERROR_MESSAGES.SYNTHESIS.NO_TEXT, toastConfig);
+      notify.error(ERROR_MESSAGES.SYNTHESIS.NO_TEXT);
       return;
     }
 
     if (!lastRecordingRef.current && !uploadedFile) {
-      toast.error(ERROR_MESSAGES.SYNTHESIS.NO_REFERENCE, toastConfig);
+      notify.error(ERROR_MESSAGES.SYNTHESIS.NO_REFERENCE);
       return;
     }
 
-    const toastId = showLoadingToast('Cloning voice...');
+    const toastId = notify.loading('Cloning voice...');
     try {
       setIsCloning(true);
       const formData = new FormData();
@@ -317,7 +378,7 @@ const App = () => {
       const audioBlob = new Blob([response.data], { type: 'audio/webm' });
       const audioUrl = URL.createObjectURL(audioBlob);
       setClonedAudioUrl(audioUrl);
-      updateToast(toastId, 'Voice cloning complete!');
+      notify.update(toastId, 'Voice cloning complete!');
     } catch (error) {
       handleApiError(error, ERROR_MESSAGES.SYNTHESIS.FAILED);
       setClonedAudioUrl(null);
@@ -344,70 +405,24 @@ const App = () => {
     };
   }, [clonedAudioUrl]);
 
-  // Toast configuration
-  const toastConfig = {
-    position: "top-center",
-    autoClose: 3000,
-    hideProgressBar: false,
-    closeOnClick: true,
-    pauseOnHover: true,
-    draggable: true,
-    progress: undefined,
-  };
-
-  const showLoadingToast = (message) => {
-    return toast.loading(message, {
-      ...toastConfig,
-      autoClose: false,
-    });
-  };
-
-  const updateToast = (toastId, message, type = 'success') => {
-    toast.update(toastId, {
-      render: message,
-      type,
-      isLoading: false,
-      autoClose: 3000,
-    });
-  };
-
-  const isLoading = isTranscribing || isTranslating || isCloning;
-
   const muiTheme = useMuiTheme();
-  const isMobile = useMediaQuery(muiTheme.breakpoints.down('md'));
+  const isMobile = useMediaQuery(muiTheme.breakpoints.down('sm'));
+  const isLoading = isTranscribing || isTranslating || isCloning;
 
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <ToastContainer
-        position="top-center"
-        autoClose={3000}
-        hideProgressBar={false}
-        newestOnTop
-        closeOnClick
-        rtl={false}
-        pauseOnFocusLoss
-        draggable
-        pauseOnHover
-        theme="light"
-      />
+      <Toast />
       
       <Backdrop
-        sx={{
-          color: '#fff',
+        sx={{ 
+          color: '#fff', 
           zIndex: (theme) => theme.zIndex.drawer + 1,
-          backgroundColor: 'rgba(0, 0, 0, 0.7)',
-        }}
+          backgroundColor: 'rgba(0, 0, 0, 0.8)'
+        }} 
         open={isLoading}
       >
-        <Loader 
-          message={
-            isTranscribing ? 'Transcribing audio...' :
-            isTranslating ? 'Translating text...' :
-            isCloning ? 'Cloning voice...' :
-            'Processing...'
-          }
-        />
+        <Loader />
       </Backdrop>
 
       <AppBar position="sticky" elevation={0} sx={{ borderBottom: '1px solid', borderColor: 'divider' }}>
