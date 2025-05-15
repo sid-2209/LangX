@@ -1,0 +1,58 @@
+# Python virtual environments
+venv/
+test_venv/
+.env/
+.venv/
+ENV/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Environment variables and secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Logs and databases
+*.log
+*.sqlite
+*.db
+
+# Audio files (if any)
+*.wav
+*.mp3
+*.ogg
+*.flac
+
+# Model files (if any)
+*.pt
+*.pth
+*.onnx
+*.bin 
