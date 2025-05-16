@@ -27,17 +27,40 @@ const AudioPlayer = ({ src, title, downloadFileName = 'audio.webm' }) => {
 
   // Handle both Blob and URL sources
   useEffect(() => {
+    console.log('AudioPlayer received src:', {
+      type: typeof src,
+      isBlob: src instanceof Blob,
+      value: src
+    });
+
     if (src instanceof Blob) {
       const url = URL.createObjectURL(src);
+      console.log('Created blob URL:', url);
       setAudioUrl(url);
-      return () => URL.revokeObjectURL(url);
+      return () => {
+        console.log('Cleaning up blob URL:', url);
+        URL.revokeObjectURL(url);
+      };
     } else {
+      console.log('Using direct URL:', src);
       setAudioUrl(src);
     }
   }, [src]);
 
   const handlePlayPause = () => {
-    if (!audioRef.current) return;
+    if (!audioRef.current) {
+      console.error('Audio element not found');
+      return;
+    }
+
+    console.log('Play/Pause clicked:', {
+      currentState: isPlaying ? 'playing' : 'paused',
+      audioElement: {
+        readyState: audioRef.current.readyState,
+        error: audioRef.current.error,
+        src: audioRef.current.src
+      }
+    });
 
     if (isPlaying) {
       audioRef.current.pause();
@@ -61,6 +84,11 @@ const AudioPlayer = ({ src, title, downloadFileName = 'audio.webm' }) => {
 
   const handleLoadedMetadata = () => {
     if (audioRef.current) {
+      console.log('Audio metadata loaded:', {
+        duration: audioRef.current.duration,
+        readyState: audioRef.current.readyState,
+        src: audioRef.current.src
+      });
       setDuration(audioRef.current.duration);
     }
   };

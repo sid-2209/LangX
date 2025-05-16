@@ -357,12 +357,26 @@ const App = () => {
       const fileName = uploadedFile ? uploadedFile.name : 'reference.webm';
       formData.append('reference_audio', audioFile, fileName);
 
+      console.log('Sending synthesis request:', {
+        text: translation,
+        fileName: fileName,
+        fileType: audioFile.type,
+        fileSize: audioFile.size
+      });
+
       const response = await axios.post(API_ENDPOINTS.SYNTHESIZE, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
         responseType: 'blob',
         timeout: 60000, // 60 second timeout for synthesis
+      });
+
+      console.log('Synthesis response:', {
+        status: response.status,
+        statusText: response.statusText,
+        contentType: response.headers['content-type'],
+        dataSize: response.data.size
       });
 
       // Validate response
@@ -376,34 +390,40 @@ const App = () => {
       }
 
       const audioBlob = new Blob([response.data], { type: 'audio/webm' });
+      console.log('Created audio blob:', {
+        type: audioBlob.type,
+        size: audioBlob.size
+      });
+
       const audioUrl = URL.createObjectURL(audioBlob);
+      console.log('Created audio URL:', audioUrl);
+      
+      // Set the audio URL in state
       setClonedAudioUrl(audioUrl);
       notify.update(toastId, 'Voice cloning complete!');
     } catch (error) {
+      console.error('Voice cloning error:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        headers: error.response?.headers
+      });
       handleApiError(error, ERROR_MESSAGES.SYNTHESIS.FAILED);
+      // Only clear the audio URL if there's an error
       setClonedAudioUrl(null);
     } finally {
       setIsCloning(false);
     }
   };
 
-  // Enhanced cleanup
+  // Enhanced cleanup - only clean up when component unmounts
   React.useEffect(() => {
     return () => {
-      // Cleanup audio URLs
       if (clonedAudioUrl) {
         URL.revokeObjectURL(clonedAudioUrl);
       }
-      // Reset states
-      setTranscription('');
-      setTranslation('');
-      setClonedAudioUrl(null);
-      setUploadedFile(null);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
     };
-  }, [clonedAudioUrl]);
+  }, []); // Empty dependency array means this only runs on unmount
 
   const muiTheme = useMuiTheme();
   const isMobile = useMediaQuery(muiTheme.breakpoints.down('sm'));
@@ -611,16 +631,29 @@ const App = () => {
                 </Card>
               )}
 
+              {/* Debug message */}
+              <Typography variant="body2" color="text.secondary">
+                {clonedAudioUrl ? 'Audio URL is set' : 'No audio URL'}
+              </Typography>
+
+              {/* Cloned Voice Card - Only show when we have an audio URL */}
               {clonedAudioUrl && (
-                <Card>
+                <Card sx={{ 
+                  border: '1px solid',
+                  borderColor: 'primary.main',
+                  backgroundColor: 'background.paper'
+                }}>
                   <CardContent>
                     <Typography variant="h6" gutterBottom>
                       Cloned Voice
                     </Typography>
+                    {console.log('Rendering AudioPlayer with URL:', clonedAudioUrl)}
                     <AudioPlayer 
                       src={clonedAudioUrl} 
                       title="Synthesized Speech"
+                      key={clonedAudioUrl}
                     />
+                    {console.log('AudioPlayer rendered')}
                   </CardContent>
                 </Card>
               )}

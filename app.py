@@ -4,6 +4,8 @@ import synthesize
 from transformers import MarianMTModel, MarianTokenizer
 import torch
 from flask_cors import CORS
+import tempfile
+import os
 
 app = Flask(__name__)
 CORS(app)
@@ -55,13 +57,44 @@ def translate_endpoint():
 
 @app.route("/synthesize", methods=["POST"])
 def synthesize_endpoint():
-    data = request.get_json()
-    if not data or "text" not in data:
-        return make_response(jsonify({"error": "Missing 'text' in JSON body"}), 400)
-    (audio_bytes, err) = synthesize.synthesize(data["text"])
-    if err:
-        return make_response(jsonify({"error": err}), 500)
-    return make_response(jsonify({"audio": audio_bytes.decode("latin1")}), 200)
+    if "text" not in request.form:
+        return make_response(jsonify({"error": "Missing 'text' in form data"}), 400)
+    
+    if "reference_audio" not in request.files:
+        return make_response(jsonify({"error": "Missing reference audio file"}), 400)
+    
+    text = request.form["text"]
+    reference_audio = request.files["reference_audio"]
+    
+    if not text.strip():
+        return make_response(jsonify({"error": "Empty text provided"}), 400)
+    
+    if not reference_audio.filename:
+        return make_response(jsonify({"error": "No reference audio file selected"}), 400)
+    
+    try:
+        # Save reference audio temporarily
+        temp_ref_path = tempfile.mktemp(suffix=".wav")
+        reference_audio.save(temp_ref_path)
+        
+        # Synthesize audio
+        (audio_bytes, err) = synthesize.synthesize(text, reference_audio=temp_ref_path)
+        
+        # Clean up temp file
+        if os.path.exists(temp_ref_path):
+            os.remove(temp_ref_path)
+            
+        if err:
+            return make_response(jsonify({"error": err}), 500)
+            
+        response = make_response(audio_bytes)
+        response.headers['Content-Type'] = 'audio/webm'
+        return response
+        
+    except Exception as e:
+        if os.path.exists(temp_ref_path):
+            os.remove(temp_ref_path)
+        return make_response(jsonify({"error": str(e)}), 500)
 
 
 @app.route("/translate_text", methods=["POST"])
